@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Room {
+  id              Int       @id
+  type            String
+  state           String
+  stakeAmount     String
+  aiAddress       String?
+  aiSalt          String?
+  phaseEndTime    BigInt?
+  chatEndTime     DateTime?
+  commitEndTime   DateTime?
+  revealEndTime   DateTime?
+  createdAt       DateTime  @default(now())
+  players         Player[]
+  messages        Message[]
+}
+
+model Player {
+  walletAddress   String    @id
+  roomId          Int
+  room            Room      @relation(fields: [roomId], references: [id])
+  isAI            Boolean   @default(false)
+  nickname        String?
+  sessions        PlayerSession[]
+}
+
+model PlayerSession {
+  id              String    @id @default(uuid())
+  walletAddress   String
+  player          Player    @relation(fields: [walletAddress], references: [walletAddress])
+  socketId        String    @unique
+  connectedAt     DateTime  @default(now())
+  disconnectedAt  DateTime?
+}
+
+model Message {
+  id              String    @id @default(uuid())
+  roomId          Int
+  room            Room      @relation(fields: [roomId], references: [id])
+  senderAddress   String
+  content         String
+  timestamp       DateTime  @default(now())
+}
