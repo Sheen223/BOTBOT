@@ -5,6 +5,7 @@ import { aiService } from './AIService';
 import { prisma } from '../prisma/client';
 import { env } from '../config/env';
 import { ethers } from 'ethers';
+import type { Room } from '@prisma/client';
 
 export class GameService {
 
@@ -45,8 +46,8 @@ export class GameService {
         where: { state: 'Waiting' }
       });
       
-      const roomACount = activeRooms.filter(r => r.type === 'RoomA').length;
-      const roomBCount = activeRooms.filter(r => r.type === 'RoomB').length;
+      const roomACount = activeRooms.filter((r: Room) => r.type === 'RoomA').length;
+      const roomBCount = activeRooms.filter((r: Room) => r.type === 'RoomB').length;
 
       // Ensure 3 of each type
       const neededA = Math.max(0, 3 - roomACount);
