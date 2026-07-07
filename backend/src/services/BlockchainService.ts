@@ -31,59 +31,100 @@ export class BlockchainService {
     this.setupEventListeners();
   }
 
-  private setupEventListeners() {
-    this.contract.on('RoomCreated', async (roomId: bigint, roomType: bigint, stakeAmount: bigint) => {
-      try {
-        logger.info({ roomId: roomId.toString() }, 'Event: RoomCreated');
-        const typeStr = Number(roomType) === 0 ? 'RoomA' : 'RoomB';
-        await gameService.handleRoomCreated(Number(roomId), typeStr, stakeAmount.toString());
-      } catch (err) {
-        logger.error({ err, roomId: roomId.toString() }, 'Error handling RoomCreated');
-      }
-    });
+  private lastProcessedBlock: number = 0;
 
-    this.contract.on('PlayerJoined', async (roomId: bigint, player: string) => {
-      try {
-        // Small delay to mitigate rapid-fire block race conditions with RoomCreated
-        await new Promise(resolve => setTimeout(resolve, 500));
-        logger.info({ roomId: roomId.toString(), player }, 'Event: PlayerJoined');
-        await gameService.handlePlayerJoined(Number(roomId), player);
-      } catch (err) {
-        logger.error({ err, roomId: roomId.toString(), player }, 'Error handling PlayerJoined');
-      }
-    });
+  private async setupEventListeners() {
+    try {
+      // Get the current block to start polling from
+      this.lastProcessedBlock = await this.provider.getBlockNumber();
+      logger.info({ startBlock: this.lastProcessedBlock }, 'Starting block-based event polling');
+    } catch (err) {
+      logger.error({ err }, 'Failed to get initial block number, starting from 0');
+      this.lastProcessedBlock = 0;
+    }
 
-    this.contract.on('RoomStateChanged', async (roomId: bigint, newState: number) => {
-      try {
-        logger.info({ roomId: roomId.toString(), newState }, 'Event: RoomStateChanged');
-        await gameService.handleStateChange(Number(roomId), newState);
-      } catch (err) {
-        logger.error({ err, roomId: roomId.toString() }, 'Error handling RoomStateChanged');
-      }
-    });
-
-    this.contract.on('RoomResolved', async (roomId: bigint, winners: string[], payout: bigint) => {
-      try {
-        logger.info({ roomId: roomId.toString(), winners, payout: payout.toString() }, 'Event: RoomResolved');
-      } catch (err) {
-        logger.error({ err, roomId: roomId.toString() }, 'Error handling RoomResolved');
-      }
-    });
-
-    this.contract.on('RoomCancelled', async (roomId: bigint, refunded: string[]) => {
-      try {
-        logger.info({ roomId: roomId.toString() }, 'Event: RoomCancelled');
-      } catch (err) {
-        logger.error({ err, roomId: roomId.toString() }, 'Error handling RoomCancelled');
-      }
-    });
-
-    // Handle Provider connection errors and try to resubscribe
     if (this.provider instanceof ethers.WebSocketProvider) {
+      // WebSocket: use native event subscriptions (they work reliably)
+      this.contract.on('RoomCreated', async (roomId: bigint, roomType: bigint, stakeAmount: bigint) => {
+        try {
+          logger.info({ roomId: roomId.toString() }, 'Event: RoomCreated');
+          const typeStr = Number(roomType) === 0 ? 'RoomA' : 'RoomB';
+          await gameService.handleRoomCreated(Number(roomId), typeStr, stakeAmount.toString());
+        } catch (err) {
+          logger.error({ err, roomId: roomId.toString() }, 'Error handling RoomCreated');
+        }
+      });
+
+      this.contract.on('PlayerJoined', async (roomId: bigint, player: string) => {
+        try {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          logger.info({ roomId: roomId.toString(), player }, 'Event: PlayerJoined');
+          await gameService.handlePlayerJoined(Number(roomId), player);
+        } catch (err) {
+          logger.error({ err, roomId: roomId.toString(), player }, 'Error handling PlayerJoined');
+        }
+      });
+
+      this.contract.on('RoomStateChanged', async (roomId: bigint, newState: number) => {
+        try {
+          logger.info({ roomId: roomId.toString(), newState }, 'Event: RoomStateChanged');
+          await gameService.handleStateChange(Number(roomId), newState);
+        } catch (err) {
+          logger.error({ err, roomId: roomId.toString() }, 'Error handling RoomStateChanged');
+        }
+      });
+
       (this.provider.websocket as any).on('close', () => {
         logger.error('WebSocket connection closed! Attempting to reconnect...');
         setTimeout(() => this.reconnect(), 5000);
       });
+    } else {
+      // HTTP provider: use block polling instead of filters to avoid 'filter not found' errors
+      this.provider.on('block', async (blockNumber: number) => {
+        await this.pollEvents(blockNumber);
+      });
+    }
+  }
+
+  private async pollEvents(toBlock: number) {
+    if (toBlock <= this.lastProcessedBlock) return;
+    const fromBlock = this.lastProcessedBlock + 1;
+    this.lastProcessedBlock = toBlock;
+
+    try {
+      const roomCreatedFilter = this.contract.filters.RoomCreated();
+      const playerJoinedFilter = this.contract.filters.PlayerJoined();
+      const stateChangedFilter = this.contract.filters.RoomStateChanged();
+
+      const [roomCreatedEvents, playerJoinedEvents, stateChangedEvents] = await Promise.all([
+        this.contract.queryFilter(roomCreatedFilter, fromBlock, toBlock),
+        this.contract.queryFilter(playerJoinedFilter, fromBlock, toBlock),
+        this.contract.queryFilter(stateChangedFilter, fromBlock, toBlock),
+      ]);
+
+      for (const event of roomCreatedEvents) {
+        const e = event as ethers.EventLog;
+        const [roomId, roomType, stakeAmount] = e.args;
+        logger.info({ roomId: roomId.toString() }, 'Polled Event: RoomCreated');
+        const typeStr = Number(roomType) === 0 ? 'RoomA' : 'RoomB';
+        await gameService.handleRoomCreated(Number(roomId), typeStr, stakeAmount.toString());
+      }
+
+      for (const event of playerJoinedEvents) {
+        const e = event as ethers.EventLog;
+        const [roomId, player] = e.args;
+        logger.info({ roomId: roomId.toString(), player }, 'Polled Event: PlayerJoined');
+        await gameService.handlePlayerJoined(Number(roomId), player);
+      }
+
+      for (const event of stateChangedEvents) {
+        const e = event as ethers.EventLog;
+        const [roomId, newState] = e.args;
+        logger.info({ roomId: roomId.toString(), newState }, 'Polled Event: RoomStateChanged');
+        await gameService.handleStateChange(Number(roomId), Number(newState));
+      }
+    } catch (err) {
+      logger.error({ err, fromBlock, toBlock }, 'Error polling events');
     }
   }
 
