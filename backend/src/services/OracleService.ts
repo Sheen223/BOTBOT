@@ -6,7 +6,10 @@ export class OracleService {
   private wallet: ethers.Wallet;
 
   constructor() {
-    this.wallet = new ethers.Wallet(env.ORACLE_PRIVATE_KEY);
+    const provider = env.RPC_URL.startsWith('ws')
+      ? new ethers.WebSocketProvider(env.RPC_URL)
+      : new ethers.JsonRpcProvider(env.RPC_URL);
+    this.wallet = new ethers.Wallet(env.ORACLE_PRIVATE_KEY, provider);
     logger.info(`OracleService initialized with wallet: ${this.wallet.address}`);
   }
 
