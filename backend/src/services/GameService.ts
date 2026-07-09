@@ -99,7 +99,7 @@ export class GameService {
         }
 
         if (actualState === 'Waiting') {
-          const WAITING_ROOM_TIMEOUT_MS = 90000;
+          const WAITING_ROOM_TIMEOUT_MS = 10000;
           const createdAtMs = new Date(room.createdAt).getTime();
           const elapsed = Date.now() - createdAtMs;
           if (elapsed >= WAITING_ROOM_TIMEOUT_MS) {
@@ -199,7 +199,7 @@ export class GameService {
 
     if (humanCount === maxHumans - 1 && room.state === 'Waiting' && !room.aiAddress) {
       logger.info({ roomId }, 'Room needs 1 more player. Starting waiting timer...');
-      this.scheduleTimer(roomId, 90000, () => this.handleWaitingTimeout(roomId), 'Scheduling waiting timeout.');
+      this.scheduleTimer(roomId, 10000, () => this.handleWaitingTimeout(roomId), 'Scheduling waiting timeout.');
     }
 
     if (humanCount >= maxHumans && room.state === 'Waiting' && !room.aiAddress) {
