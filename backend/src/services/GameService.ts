@@ -59,11 +59,11 @@ export class GameService {
 
       for (let i = 0; i < neededA; i++) {
         // RoomA: type 0, 0.5 BOT stake
-        await blockchainService.createRoom(0, 500000000000000000n, 120, 60, 60);
+        await blockchainService.createRoom(0, 500000000000000000n, 120, 30, 30);
       }
       for (let i = 0; i < neededB; i++) {
         // RoomB: type 1, 1 BOT stake
-        await blockchainService.createRoom(1, 1000000000000000000n, 120, 60, 60);
+        await blockchainService.createRoom(1, 1000000000000000000n, 120, 30, 30);
       }
     } catch (error) {
       logger.error({ error }, 'Failed to maintain room pool');
